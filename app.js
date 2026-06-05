@@ -723,8 +723,117 @@ function shuffleQueries() {
   renderCurrent();
 }
 
-function wrapCanvasText(ctx, text, maxWidth) {
+const canvasFontFamily = "Arial, \"PingFang SC\", \"Microsoft YaHei\", sans-serif";
+const canvasMonoFontFamily = "\"SFMono-Regular\", Consolas, monospace";
+
+function canvasFont({ size = 18, weight = 400, italic = false, mono = false } = {}) {
+  return `${italic ? "italic " : ""}${weight} ${size}px ${mono ? canvasMonoFontFamily : canvasFontFamily}`;
+}
+
+function stripCanvasMarkdown(value) {
+  return String(value || "")
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, (_match, alt) => alt || "图片")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/_([^_]+)_/g, "$1");
+}
+
+function parseCanvasInlineMarkdown(value) {
+  const text = String(value || "")
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, (_match, alt) => (alt ? `图片：${alt}` : "图片"))
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  const segments = [];
+  const pattern = /`([^`]+)`|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*]+)\*|_([^_]+)_/g;
+  let lastIndex = 0;
+  let match = pattern.exec(text);
+
+  while (match) {
+    if (match.index > lastIndex) {
+      segments.push({ text: text.slice(lastIndex, match.index) });
+    }
+
+    if (match[1]) {
+      segments.push({ text: match[1], code: true });
+    } else if (match[2] || match[3]) {
+      segments.push({ text: match[2] || match[3], bold: true });
+    } else {
+      segments.push({ text: match[4] || match[5], italic: true });
+    }
+
+    lastIndex = pattern.lastIndex;
+    match = pattern.exec(text);
+  }
+
+  if (lastIndex < text.length) {
+    segments.push({ text: text.slice(lastIndex) });
+  }
+
+  return segments.length > 0 ? segments : [{ text }];
+}
+
+function sameCanvasSegmentStyle(first, second) {
+  return Boolean(first.bold) === Boolean(second.bold) &&
+    Boolean(first.italic) === Boolean(second.italic) &&
+    Boolean(first.code) === Boolean(second.code);
+}
+
+function segmentCanvasFont(segment, style) {
+  return canvasFont({
+    size: style.size,
+    weight: segment.bold ? style.boldWeight : style.weight,
+    italic: segment.italic,
+    mono: segment.code,
+  });
+}
+
+function appendCanvasSegment(line, segment, text) {
+  const last = line[line.length - 1];
+  if (last && sameCanvasSegmentStyle(last, segment)) {
+    last.text += text;
+    return;
+  }
+  line.push({
+    text,
+    bold: segment.bold,
+    italic: segment.italic,
+    code: segment.code,
+  });
+}
+
+function wrapCanvasSegments(ctx, segments, maxWidth, style) {
   const lines = [];
+  let line = [];
+  let lineWidth = 0;
+
+  segments.forEach((segment) => {
+    Array.from(segment.text).forEach((char) => {
+      ctx.font = segmentCanvasFont(segment, style);
+      const charWidth = ctx.measureText(char).width;
+      if (line.length > 0 && lineWidth + charWidth > maxWidth) {
+        lines.push(line);
+        line = [];
+        lineWidth = 0;
+        if (char.trim() === "") return;
+      }
+      appendCanvasSegment(line, segment, char);
+      lineWidth += charWidth;
+    });
+  });
+
+  if (line.length > 0) lines.push(line);
+  return lines.length > 0 ? lines : [[{ text: "" }]];
+}
+
+function wrapCanvasText(ctx, text, maxWidth, style = {}) {
+  const lines = [];
+  const fontStyle = {
+    size: style.size || 18,
+    weight: style.weight || 400,
+    mono: style.mono || false,
+  };
   const paragraphs = String(text || "").replace(/\r\n?/g, "\n").split("\n");
 
   paragraphs.forEach((paragraph) => {
@@ -735,6 +844,7 @@ function wrapCanvasText(ctx, text, maxWidth) {
 
     let line = "";
     Array.from(paragraph).forEach((char) => {
+      ctx.font = canvasFont(fontStyle);
       const nextLine = line + char;
       if (line && ctx.measureText(nextLine).width > maxWidth) {
         lines.push(line);
@@ -747,6 +857,286 @@ function wrapCanvasText(ctx, text, maxWidth) {
   });
 
   return lines;
+}
+
+function parseCanvasMarkdown(markdown) {
+  const lines = String(markdown || "该模型没有输出内容").replace(/\r\n?/g, "\n").split("\n");
+  const blocks = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      blocks.push({ type: "space" });
+      continue;
+    }
+
+    if (/^```/.test(trimmed)) {
+      const codeLines = [];
+      index += 1;
+      while (index < lines.length && !/^```/.test(lines[index].trim())) {
+        codeLines.push(lines[index]);
+        index += 1;
+      }
+      blocks.push({ type: "code", text: codeLines.join("\n") || " " });
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      blocks.push({
+        type: "heading",
+        level: heading[1].length,
+        text: heading[2].trim(),
+      });
+      continue;
+    }
+
+    if (line.includes("|") && isTableDivider(lines[index + 1] || "")) {
+      const headers = splitTableRow(line);
+      index += 2;
+      const rows = [];
+      while (index < lines.length && lines[index].includes("|") && lines[index].trim()) {
+        rows.push(splitTableRow(lines[index]));
+        index += 1;
+      }
+      index -= 1;
+      blocks.push({ type: "table", headers, rows });
+      continue;
+    }
+
+    if (/^>\s?/.test(line)) {
+      const quoteLines = [];
+      while (index < lines.length && /^>\s?/.test(lines[index])) {
+        quoteLines.push(lines[index].replace(/^>\s?/, ""));
+        index += 1;
+      }
+      index -= 1;
+      blocks.push({ type: "quote", text: quoteLines.join(" ") });
+      continue;
+    }
+
+    const unordered = line.match(/^(\s*)[-*+]\s+(.+)$/);
+    const ordered = line.match(/^(\s*)\d+\.\s+(.+)$/);
+    if (unordered || ordered) {
+      const orderedList = Boolean(ordered);
+      const items = [];
+      while (index < lines.length) {
+        const current = lines[index];
+        const itemMatch = orderedList
+          ? current.match(/^(\s*)\d+\.\s+(.+)$/)
+          : current.match(/^(\s*)[-*+]\s+(.+)$/);
+        if (!itemMatch) break;
+        items.push(itemMatch[2].trim());
+        index += 1;
+      }
+      index -= 1;
+      blocks.push({ type: "list", ordered: orderedList, items });
+      continue;
+    }
+
+    const paragraphLines = [trimmed];
+    while (index + 1 < lines.length && lines[index + 1].trim() && !isBlockStart(lines[index + 1], lines[index + 2] || "")) {
+      paragraphLines.push(lines[index + 1].trim());
+      index += 1;
+    }
+    blocks.push({ type: "paragraph", text: paragraphLines.join(" ") });
+  }
+
+  return blocks.filter((block, index, allBlocks) => {
+    if (block.type !== "space") return true;
+    return index > 0 && index < allBlocks.length - 1 && allBlocks[index - 1].type !== "space";
+  });
+}
+
+function drawCanvasInlineLines(ctx, lines, x, y, lineHeight, style) {
+  let currentY = y;
+
+  lines.forEach((line) => {
+    let currentX = x;
+    line.forEach((segment) => {
+      ctx.font = segmentCanvasFont(segment, style);
+      ctx.fillStyle = segment.code ? "#0f766e" : style.color;
+      ctx.fillText(segment.text, currentX, currentY + lineHeight * 0.76);
+      currentX += ctx.measureText(segment.text).width;
+    });
+    currentY += lineHeight;
+  });
+
+  return currentY;
+}
+
+function drawCanvasPlainLines(ctx, lines, x, y, lineHeight, style) {
+  ctx.font = canvasFont(style);
+  ctx.fillStyle = style.color;
+  let currentY = y;
+
+  lines.forEach((line) => {
+    ctx.fillText(line, x, currentY + lineHeight * 0.76);
+    currentY += lineHeight;
+  });
+
+  return currentY;
+}
+
+function measureCanvasMarkdown(ctx, blocks, maxWidth) {
+  return renderCanvasMarkdown(ctx, blocks, 0, 0, maxWidth, Infinity, false);
+}
+
+function renderCanvasMarkdown(ctx, blocks, x, y, maxWidth, maxY, shouldDraw = true) {
+  let currentY = y;
+  let isTruncated = false;
+
+  function hasRoom(height) {
+    if (!shouldDraw || currentY + height <= maxY) return true;
+    if (!isTruncated) {
+      ctx.font = canvasFont({ size: 17, weight: 700 });
+      ctx.fillStyle = "#657281";
+      ctx.fillText("...... 内容过长，图片已截断", x, Math.max(currentY + 22, maxY - 6));
+      isTruncated = true;
+    }
+    return false;
+  }
+
+  function blockGap(index) {
+    return index === 0 ? 0 : 10;
+  }
+
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index];
+
+    if (block.type === "space") {
+      currentY += 8;
+      continue;
+    }
+
+    if (block.type === "heading") {
+      const sizeMap = { 1: 25, 2: 22, 3: 20 };
+      const size = sizeMap[block.level] || 18;
+      const lineHeight = size + 10;
+      const style = { size, weight: 700, boldWeight: 700, color: "#17202a" };
+      const lines = wrapCanvasSegments(ctx, parseCanvasInlineMarkdown(block.text), maxWidth, style);
+      const height = blockGap(index) + lines.length * lineHeight + 8;
+      if (!hasRoom(height)) return currentY;
+      currentY += blockGap(index);
+      if (shouldDraw) drawCanvasInlineLines(ctx, lines, x, currentY, lineHeight, style);
+      currentY += lines.length * lineHeight + 8;
+      continue;
+    }
+
+    if (block.type === "paragraph") {
+      const style = { size: 18, weight: 400, boldWeight: 700, color: "#17202a" };
+      const lineHeight = 29;
+      const lines = wrapCanvasSegments(ctx, parseCanvasInlineMarkdown(block.text), maxWidth, style);
+      const height = blockGap(index) + lines.length * lineHeight + 10;
+      if (!hasRoom(height)) return currentY;
+      currentY += blockGap(index);
+      if (shouldDraw) drawCanvasInlineLines(ctx, lines, x, currentY, lineHeight, style);
+      currentY += lines.length * lineHeight + 10;
+      continue;
+    }
+
+    if (block.type === "list") {
+      const style = { size: 18, weight: 400, boldWeight: 700, color: "#17202a" };
+      const lineHeight = 28;
+      const indent = 28;
+      const renderedItems = block.items.map((item) => wrapCanvasSegments(ctx, parseCanvasInlineMarkdown(item), maxWidth - indent, style));
+      const height = blockGap(index) + renderedItems.reduce((sum, lines) => sum + lines.length * lineHeight + 6, 0) + 4;
+      if (!hasRoom(height)) return currentY;
+      currentY += blockGap(index);
+      renderedItems.forEach((lines, itemIndex) => {
+        if (shouldDraw) {
+          ctx.font = canvasFont({ size: 18, weight: 700 });
+          ctx.fillStyle = "#0f766e";
+          ctx.fillText(block.ordered ? `${itemIndex + 1}.` : "•", x, currentY + lineHeight * 0.76);
+          drawCanvasInlineLines(ctx, lines, x + indent, currentY, lineHeight, style);
+        }
+        currentY += lines.length * lineHeight + 6;
+      });
+      currentY += 4;
+      continue;
+    }
+
+    if (block.type === "quote") {
+      const style = { size: 17, weight: 400, boldWeight: 700, color: "#334155" };
+      const lineHeight = 27;
+      const lines = wrapCanvasSegments(ctx, parseCanvasInlineMarkdown(block.text), maxWidth - 30, style);
+      const height = blockGap(index) + lines.length * lineHeight + 24;
+      if (!hasRoom(height)) return currentY;
+      currentY += blockGap(index);
+      if (shouldDraw) {
+        drawRoundedRect(ctx, x, currentY, maxWidth, height - blockGap(index), 8);
+        ctx.fillStyle = "#f1faf8";
+        ctx.fill();
+        ctx.fillStyle = "#0f766e";
+        ctx.fillRect(x, currentY + 12, 4, height - blockGap(index) - 24);
+        drawCanvasInlineLines(ctx, lines, x + 18, currentY + 12, lineHeight, style);
+      }
+      currentY += height - blockGap(index) + 10;
+      continue;
+    }
+
+    if (block.type === "code") {
+      const style = { size: 15, weight: 400, mono: true, color: "#334155" };
+      const lineHeight = 24;
+      const lines = wrapCanvasText(ctx, block.text, maxWidth - 24, style);
+      const height = blockGap(index) + lines.length * lineHeight + 24;
+      if (!hasRoom(height)) return currentY;
+      currentY += blockGap(index);
+      if (shouldDraw) {
+        drawRoundedRect(ctx, x, currentY, maxWidth, height - blockGap(index), 8);
+        ctx.fillStyle = "#eef2f7";
+        ctx.fill();
+        drawCanvasPlainLines(ctx, lines, x + 12, currentY + 12, lineHeight, style);
+      }
+      currentY += height - blockGap(index) + 10;
+      continue;
+    }
+
+    if (block.type === "table") {
+      const columnCount = Math.min(Math.max(block.headers.length, 1), 4);
+      const columnWidth = maxWidth / columnCount;
+      const rows = [block.headers, ...block.rows];
+      const style = { size: 15, weight: 400, color: "#334155" };
+      const lineHeight = 23;
+      const rowLayouts = rows.map((row) => {
+        const cells = Array.from({ length: columnCount }, (_item, cellIndex) =>
+          wrapCanvasText(ctx, stripCanvasMarkdown(row[cellIndex] || ""), columnWidth - 20, style)
+        );
+        const rowHeight = Math.max(...cells.map((cellLines) => cellLines.length)) * lineHeight + 16;
+        return { cells, rowHeight };
+      });
+      const height = blockGap(index) + rowLayouts.reduce((sum, row) => sum + row.rowHeight, 0) + 2;
+      if (!hasRoom(height)) return currentY;
+      currentY += blockGap(index);
+      if (shouldDraw) {
+        let tableY = currentY;
+        rowLayouts.forEach((row, rowIndex) => {
+          ctx.fillStyle = rowIndex === 0 ? "#e8f0ff" : "#ffffff";
+          ctx.fillRect(x, tableY, maxWidth, row.rowHeight);
+          ctx.strokeStyle = "#d8dee7";
+          ctx.strokeRect(x, tableY, maxWidth, row.rowHeight);
+          row.cells.forEach((cellLines, cellIndex) => {
+            ctx.strokeStyle = "#d8dee7";
+            ctx.strokeRect(x + cellIndex * columnWidth, tableY, columnWidth, row.rowHeight);
+            drawCanvasPlainLines(
+              ctx,
+              cellLines,
+              x + cellIndex * columnWidth + 10,
+              tableY + 8,
+              lineHeight,
+              { ...style, weight: rowIndex === 0 ? 700 : 400 }
+            );
+          });
+          tableY += row.rowHeight;
+        });
+      }
+      currentY += height + 10;
+    }
+  }
+
+  return currentY - y;
 }
 
 function drawRoundedRect(ctx, x, y, width, height, radius) {
@@ -802,17 +1192,17 @@ function downloadCurrentComparisonImage() {
   const headerHeight = 210;
   const columnHeaderHeight = 68;
   const columnPadding = 24;
-  const lineHeight = 25;
   const maxCanvasHeight = 30000;
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
   const query = getRowLabel(row);
 
-  ctx.font = "18px Arial, sans-serif";
-  const leftLines = wrapCanvasText(ctx, row.outputs[0] || "该模型没有输出内容", columnWidth - columnPadding * 2);
-  const rightLines = wrapCanvasText(ctx, row.outputs[1] || "该模型没有输出内容", columnWidth - columnPadding * 2);
-  const contentLines = Math.max(leftLines.length, rightLines.length);
-  const contentHeight = contentLines * lineHeight + columnHeaderHeight + columnPadding * 2;
+  const leftBlocks = parseCanvasMarkdown(row.outputs[0] || "该模型没有输出内容");
+  const rightBlocks = parseCanvasMarkdown(row.outputs[1] || "该模型没有输出内容");
+  const markdownWidth = columnWidth - columnPadding * 2;
+  const leftHeight = measureCanvasMarkdown(ctx, leftBlocks, markdownWidth);
+  const rightHeight = measureCanvasMarkdown(ctx, rightBlocks, markdownWidth);
+  const contentHeight = Math.max(leftHeight, rightHeight) + columnHeaderHeight + columnPadding * 2;
   const canvasHeight = Math.min(maxCanvasHeight, headerHeight + contentHeight + padding);
 
   canvas.width = canvasWidth;
@@ -822,33 +1212,33 @@ function downloadCurrentComparisonImage() {
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
   ctx.fillStyle = "#17202a";
-  ctx.font = "700 34px Arial, sans-serif";
+  ctx.font = canvasFont({ size: 34, weight: 700 });
   ctx.fillText("模型效果对比", padding, 64);
 
   ctx.fillStyle = "#657281";
-  ctx.font = "18px Arial, sans-serif";
+  ctx.font = canvasFont({ size: 18, weight: 400 });
   ctx.fillText(`${state.sourceName || "评测数据"} · ${new Date().toLocaleString()}`, padding, 98);
 
   ctx.fillStyle = "#0b5f59";
-  ctx.font = "700 20px Arial, sans-serif";
+  ctx.font = canvasFont({ size: 20, weight: 700 });
   ctx.fillText("当前 query", padding, 142);
 
   ctx.fillStyle = "#17202a";
-  ctx.font = "700 24px Arial, sans-serif";
+  ctx.font = canvasFont({ size: 24, weight: 700 });
   ctx.fillText(truncateChars(query, 20), padding, 178);
 
   const columns = [
     {
       x: padding,
       title: state.models[0].name,
-      lines: leftLines,
+      blocks: leftBlocks,
       color: "#0f766e",
       soft: "#e3f3f0",
     },
     {
       x: padding + columnWidth + gap,
       title: state.models[1].name,
-      lines: rightLines,
+      blocks: rightBlocks,
       color: "#2557a7",
       soft: "#e8f0ff",
     },
@@ -867,18 +1257,17 @@ function downloadCurrentComparisonImage() {
     ctx.fill();
 
     ctx.fillStyle = column.color;
-    ctx.font = "700 22px Arial, sans-serif";
+    ctx.font = canvasFont({ size: 22, weight: 700 });
     ctx.fillText(column.title, column.x + columnPadding, y + 42);
 
-    ctx.fillStyle = "#17202a";
-    ctx.font = "18px Arial, sans-serif";
-    drawLines(
+    renderCanvasMarkdown(
       ctx,
-      column.lines,
+      column.blocks,
       column.x + columnPadding,
-      y + columnHeaderHeight + columnPadding + 18,
-      lineHeight,
-      canvasHeight - padding - 18
+      y + columnHeaderHeight + columnPadding,
+      markdownWidth,
+      canvasHeight - padding - 18,
+      true
     );
   });
 
