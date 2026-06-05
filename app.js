@@ -9,6 +9,7 @@ const state = {
   originalHeaders: [],
   originalRows: [],
   queryColumnIndex: 0,
+  containerMode: "web",
 };
 
 const els = {
@@ -33,6 +34,7 @@ const els = {
   shareImageBtn: document.querySelector("#shareImageBtn"),
   exportRatingsBtn: document.querySelector("#exportRatingsBtn"),
   summaryViewBtn: document.querySelector("#summaryViewBtn"),
+  containerModeButtons: document.querySelectorAll("[data-container-mode]"),
 };
 
 const ratingOptions = {
@@ -552,6 +554,55 @@ function renderRatingDock() {
   });
 }
 
+function renderContainerModeSwitch() {
+  els.containerModeButtons.forEach((button) => {
+    const isActive = button.dataset.containerMode === state.containerMode;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-pressed", String(isActive));
+  });
+}
+
+function renderOutputContent(output) {
+  return output ? markdownToHtml(output) : "<div class=\"empty-state\">该模型没有输出内容</div>";
+}
+
+function createWebModelPane(model, output) {
+  const article = document.createElement("article");
+  article.className = "version-pane";
+  article.setAttribute("aria-labelledby", `${model.id}-title`);
+  article.innerHTML = `
+    <header class="pane-header">
+      <h3 id="${model.id}-title">${escapeHtml(model.name)}</h3>
+      <span>${output.length} 字符</span>
+    </header>
+    <div class="markdown-body">${renderOutputContent(output)}</div>
+  `;
+  return article;
+}
+
+function createMobileModelPane(model, output, query) {
+  const article = document.createElement("article");
+  article.className = "mobile-device-pane";
+  article.setAttribute("aria-labelledby", `${model.id}-mobile-title`);
+  article.innerHTML = `
+    <div class="mobile-device-label">
+      <strong id="${model.id}-mobile-title">${escapeHtml(model.name)}</strong>
+      <span>${output.length} 字符</span>
+    </div>
+    <div class="phone-shell" aria-label="${escapeHtml(model.name)} 移动端容器">
+      <img class="phone-frame" src="./设备外壳.png" alt="" aria-hidden="true">
+      <div class="phone-screen">
+        <header class="mobile-app-bar">
+          <span>当前 query</span>
+          <strong>${escapeHtml(truncateChars(query, 24))}</strong>
+        </header>
+        <div class="markdown-body mobile-content">${renderOutputContent(output)}</div>
+      </div>
+    </div>
+  `;
+  return article;
+}
+
 function renderCurrent() {
   const row = state.rows[state.currentIndex];
   const filteredPosition = state.filteredIndexes.indexOf(state.currentIndex);
@@ -561,6 +612,7 @@ function renderCurrent() {
   els.compareArea.classList.toggle("is-empty", !hasDataset);
   els.compareGrid.classList.toggle("is-one", state.models.length === 1);
   els.compareGrid.classList.toggle("is-two", state.models.length === 2);
+  els.compareGrid.classList.toggle("is-mobile-mode", state.containerMode === "mobile");
   els.prevBtn.disabled = state.filteredIndexes.length <= 1;
   els.nextBtn.disabled = state.filteredIndexes.length <= 1;
   els.shuffleBtn.disabled = state.filteredIndexes.length <= 1;
@@ -570,6 +622,7 @@ function renderCurrent() {
   els.matchStat.textContent = `${state.filteredIndexes.length} 条结果`;
   els.positionStat.textContent = hasRow ? `${filteredPosition + 1} / ${state.filteredIndexes.length}` : "0 / 0";
   els.compareGrid.innerHTML = "";
+  renderContainerModeSwitch();
   renderRatingDock();
 
   if (!hasDataset) {
@@ -599,16 +652,9 @@ function renderCurrent() {
 
   state.models.forEach((model, index) => {
     const output = row.outputs[index] || "";
-    const article = document.createElement("article");
-    article.className = "version-pane";
-    article.setAttribute("aria-labelledby", `${model.id}-title`);
-    article.innerHTML = `
-      <header class="pane-header">
-        <h3 id="${model.id}-title">${escapeHtml(model.name)}</h3>
-        <span>${output.length} 字符</span>
-      </header>
-      <div class="markdown-body">${output ? markdownToHtml(output) : "<div class=\"empty-state\">该模型没有输出内容</div>"}</div>
-    `;
+    const article = state.containerMode === "mobile"
+      ? createMobileModelPane(model, output, getRowLabel(row))
+      : createWebModelPane(model, output);
     els.compareGrid.append(article);
   });
 }
@@ -1485,6 +1531,13 @@ function bindEvents() {
   els.shuffleBtn.addEventListener("click", shuffleQueries);
   els.shareImageBtn.addEventListener("click", downloadCurrentComparisonImage);
   els.exportRatingsBtn.addEventListener("click", downloadRatingsWorkbook);
+  els.containerModeButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      state.containerMode = button.dataset.containerMode || "web";
+      renderCurrent();
+      resetCompareScroll();
+    });
+  });
   els.querySelect.addEventListener("change", (event) => {
     selectRow(Number(event.target.value));
   });

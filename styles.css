@@ -330,6 +330,43 @@ input[type="file"] {
   padding: 18px 20px;
 }
 
+.query-header-actions {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+}
+
+.container-switch {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  padding: 3px;
+}
+
+.container-switch button {
+  min-width: 88px;
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.container-switch button:hover {
+  color: var(--accent-strong);
+}
+
+.container-switch button.is-active {
+  background: var(--choice);
+  color: #ffffff;
+}
+
 .eyebrow {
   margin: 0 0 6px;
   color: var(--accent-strong);
@@ -757,6 +794,13 @@ input[type="file"] {
   overflow: hidden;
 }
 
+.compare-grid.is-mobile-mode {
+  grid-template-columns: repeat(2, minmax(440px, 560px));
+  justify-content: center;
+  overflow: auto;
+  align-items: start;
+}
+
 .compare-grid:not(.is-one):not(.is-two) .version-pane {
   min-height: 520px;
 }
@@ -792,6 +836,132 @@ input[type="file"] {
   color: var(--muted);
   font-size: 12px;
   white-space: nowrap;
+}
+
+.mobile-device-pane {
+  display: grid;
+  min-width: 0;
+  justify-items: center;
+  gap: 12px;
+  padding-bottom: 8px;
+}
+
+.mobile-device-label {
+  display: flex;
+  width: min(100%, 420px);
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+}
+
+.mobile-device-label strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-device-label span {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.phone-shell {
+  position: relative;
+  width: min(100%, 520px);
+  aspect-ratio: 1086 / 1448;
+  filter: drop-shadow(0 18px 36px rgba(15, 23, 42, 0.18));
+}
+
+.phone-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+.phone-screen {
+  position: absolute;
+  top: 10.4%;
+  right: 21.2%;
+  bottom: 5.3%;
+  left: 21.2%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border-radius: 24px;
+  background: #ffffff;
+}
+
+.mobile-app-bar {
+  border-bottom: 1px solid #e5e9ef;
+  background: rgba(255, 255, 255, 0.94);
+  padding: 13px 14px 10px;
+}
+
+.mobile-app-bar span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.mobile-app-bar strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-content.markdown-body {
+  min-height: 0;
+  padding: 14px 15px 22px;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.mobile-content.markdown-body h1 {
+  font-size: 19px;
+}
+
+.mobile-content.markdown-body h2 {
+  font-size: 17px;
+}
+
+.mobile-content.markdown-body h3 {
+  font-size: 15px;
+}
+
+.mobile-content.markdown-body p,
+.mobile-content.markdown-body ul,
+.mobile-content.markdown-body ol,
+.mobile-content.markdown-body blockquote,
+.mobile-content.markdown-body pre,
+.mobile-content.markdown-body table {
+  margin-bottom: 12px;
+}
+
+.mobile-content.markdown-body table {
+  font-size: 12px;
+}
+
+.mobile-content.markdown-body th,
+.mobile-content.markdown-body td {
+  padding: 6px 7px;
 }
 
 .markdown-body {
@@ -953,12 +1123,25 @@ input[type="file"] {
     flex-direction: column;
   }
 
+  .query-header-actions {
+    width: 100%;
+    justify-items: stretch;
+  }
+
+  .container-switch {
+    width: 100%;
+  }
+
   .query-stats {
     flex-wrap: wrap;
   }
 
   .compare-grid {
     grid-template-columns: 1fr;
+  }
+
+  .compare-grid.is-mobile-mode {
+    grid-template-columns: minmax(300px, 560px);
   }
 
   .distribution-list,

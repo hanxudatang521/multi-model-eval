@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>模型效果 Markdown 对比</title>
-    <link rel="stylesheet" href="./styles.css?v=20260605-2">
+    <link rel="stylesheet" href="./styles.css?v=20260605-3">
   </head>
   <body>
     <main class="app-shell">
@@ -57,9 +57,15 @@
             <p class="eyebrow">当前 query</p>
             <h2 id="queryTitle"></h2>
           </div>
-          <div class="query-stats" aria-label="当前条目统计">
-            <span id="positionStat">0 / 0</span>
-            <span id="matchStat">0 条结果</span>
+          <div class="query-header-actions">
+            <div class="container-switch" role="group" aria-label="容器样式">
+              <button type="button" data-container-mode="web" class="is-active">Web 端页面</button>
+              <button type="button" data-container-mode="mobile">移动端页面</button>
+            </div>
+            <div class="query-stats" aria-label="当前条目统计">
+              <span id="positionStat">0 / 0</span>
+              <span id="matchStat">0 条结果</span>
+            </div>
           </div>
         </header>
 
@@ -81,8 +87,8 @@
       </section>
     </div>
 
-    <script src="./data/model-compare-data.js?v=20260605-2"></script>
+    <script src="./data/model-compare-data.js?v=20260605-3"></script>
     <script src="./vendor/xlsx.full.min.js"></script>
-    <script src="./app.js?v=20260605-2"></script>
+    <script src="./app.js?v=20260605-3"></script>
   </body>
 </html>
