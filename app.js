@@ -293,6 +293,18 @@ function loadRatings() {
   }
 }
 
+function clearSavedRatings() {
+  try {
+    Object.keys(window.localStorage)
+      .filter((key) => key.startsWith("model-compare-ratings:"))
+      .forEach((key) => window.localStorage.removeItem(key));
+  } catch {
+    // 浏览器禁止访问本地存储时，仍清空当前会话里的评分。
+  }
+
+  state.ratings = {};
+}
+
 function saveRatings() {
   try {
     window.localStorage.setItem(state.datasetKey, JSON.stringify(state.ratings));
@@ -339,7 +351,7 @@ function setRating(rowIndex, rating) {
   }
 }
 
-function normalizeRows(rawRows, sourceName) {
+function normalizeRows(rawRows, sourceName, options = {}) {
   const dataRows = rawRows
     .map((row) => row.map((cell) => String(cell ?? "")))
     .filter((row) => row.some((cell) => cell.trim() !== ""));
@@ -357,7 +369,11 @@ function normalizeRows(rawRows, sourceName) {
   state.filteredIndexes = state.rows.map((_row, index) => index);
   state.currentIndex = state.filteredIndexes[0] ?? -1;
   state.datasetKey = buildDatasetKey(sourceName);
-  loadRatings();
+  if (options.loadRatings === false) {
+    state.ratings = {};
+  } else {
+    loadRatings();
+  }
   els.searchInput.value = "";
   els.datasetMeta.textContent = `${state.rows.length} 条 query，${state.models.length} 个模型列`;
   els.dataSourceMeta.textContent = sourceName;
@@ -1314,7 +1330,8 @@ function bindEvents() {
 
     try {
       const rows = await parseUploadedFile(file);
-      normalizeRows(rows, file.name);
+      clearSavedRatings();
+      normalizeRows(rows, file.name, { loadRatings: false });
       renderSelect();
       renderList();
       renderCurrent();
