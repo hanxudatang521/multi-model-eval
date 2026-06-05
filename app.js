@@ -26,6 +26,7 @@ const els = {
   queryTitle: document.querySelector("#queryTitle"),
   positionStat: document.querySelector("#positionStat"),
   matchStat: document.querySelector("#matchStat"),
+  shuffleBtn: document.querySelector("#shuffleBtn"),
   summaryViewBtn: document.querySelector("#summaryViewBtn"),
 };
 
@@ -499,6 +500,7 @@ function renderCurrent() {
   els.compareGrid.classList.toggle("is-two", state.models.length === 2);
   els.prevBtn.disabled = state.filteredIndexes.length <= 1;
   els.nextBtn.disabled = state.filteredIndexes.length <= 1;
+  els.shuffleBtn.disabled = state.filteredIndexes.length <= 1;
   els.summaryViewBtn.disabled = !hasDataset;
   els.matchStat.textContent = `${state.filteredIndexes.length} 条结果`;
   els.positionStat.textContent = hasRow ? `${filteredPosition + 1} / ${state.filteredIndexes.length}` : "0 / 0";
@@ -699,6 +701,26 @@ function move(step) {
   selectRow(state.filteredIndexes[nextPosition]);
 }
 
+function shuffleQueries() {
+  if (state.filteredIndexes.length <= 1) return;
+
+  for (let index = state.filteredIndexes.length - 1; index > 0; index -= 1) {
+    const targetIndex = Math.floor(Math.random() * (index + 1));
+    [state.filteredIndexes[index], state.filteredIndexes[targetIndex]] = [
+      state.filteredIndexes[targetIndex],
+      state.filteredIndexes[index],
+    ];
+  }
+
+  state.currentIndex = state.filteredIndexes.includes(state.currentIndex)
+    ? state.currentIndex
+    : state.filteredIndexes[0];
+
+  renderSelect();
+  renderList();
+  renderCurrent();
+}
+
 function applyFilter() {
   const keyword = els.searchInput.value.trim().toLowerCase();
   state.filteredIndexes = state.rows
@@ -749,6 +771,7 @@ function bindEvents() {
   els.searchInput.addEventListener("input", applyFilter);
   els.prevBtn.addEventListener("click", () => move(-1));
   els.nextBtn.addEventListener("click", () => move(1));
+  els.shuffleBtn.addEventListener("click", shuffleQueries);
   els.querySelect.addEventListener("change", (event) => {
     selectRow(Number(event.target.value));
   });

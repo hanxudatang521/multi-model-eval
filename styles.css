@@ -180,6 +180,13 @@ input[type="file"] {
   gap: 8px;
 }
 
+.action-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.secondary-action,
 .summary-trigger {
   height: 38px;
   border: 1px solid var(--border);
@@ -189,12 +196,14 @@ input[type="file"] {
   cursor: pointer;
 }
 
+.secondary-action:hover:not(:disabled),
 .summary-trigger:hover:not(:disabled) {
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--accent-strong);
 }
 
+.secondary-action:disabled,
 .summary-trigger:disabled {
   cursor: not-allowed;
   opacity: 0.5;
@@ -202,6 +211,11 @@ input[type="file"] {
 
 .summary-trigger {
   font-weight: 800;
+}
+
+.secondary-action {
+  color: var(--muted);
+  font-weight: 700;
 }
 
 .icon-button,
