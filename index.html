@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>模型效果 Markdown 对比</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="query-panel" aria-label="Query 列表">
+        <div class="brand-row">
+          <div>
+            <h1>模型效果对比</h1>
+            <p id="datasetMeta">正在读取演示数据...</p>
+          </div>
+        </div>
+
+        <label class="upload-box" for="fileInput">
+          <span class="upload-icon" aria-hidden="true">↑</span>
+          <span>
+            <strong>上传 CSV 数据</strong>
+            <em id="dataSourceMeta">默认展示演示数据</em>
+          </span>
+          <input id="fileInput" type="file" accept=".csv,text/csv">
+        </label>
+
+        <div class="format-hint" aria-label="CSV 格式要求">
+          <strong>CSV 格式要求</strong>
+          <span>第 1 列是 query，第 2 列是第一个模型效果，第 3 列是第二个模型效果。</span>
+        </div>
+
+        <label class="search-box" for="searchInput">
+          <span aria-hidden="true">⌕</span>
+          <input id="searchInput" type="search" placeholder="搜索 query" autocomplete="off">
+        </label>
+
+        <button id="summaryViewBtn" class="summary-trigger" type="button">总评分</button>
+
+        <div class="list-toolbar">
+          <button id="prevBtn" class="icon-button" type="button" title="上一条" aria-label="上一条">‹</button>
+          <select id="querySelect" aria-label="选择 query"></select>
+          <button id="nextBtn" class="icon-button" type="button" title="下一条" aria-label="下一条">›</button>
+        </div>
+
+        <div id="queryList" class="query-list" role="listbox" aria-label="Query 搜索结果"></div>
+      </aside>
+
+      <section id="compareArea" class="compare-area" aria-label="Markdown 对比区域">
+        <header class="query-header">
+          <div>
+            <p class="eyebrow">当前 query</p>
+            <h2 id="queryTitle"></h2>
+          </div>
+          <div class="query-stats" aria-label="当前条目统计">
+            <span id="positionStat">0 / 0</span>
+            <span id="matchStat">0 条结果</span>
+          </div>
+        </header>
+
+        <div id="compareGrid" class="compare-grid" aria-live="polite"></div>
+
+        <div id="ratingDock" class="rating-dock" aria-label="当前 query 评分" hidden>
+          <button type="button" data-rating="first">左好</button>
+          <button type="button" data-rating="same">相同</button>
+          <button type="button" data-rating="second">右好</button>
+        </div>
+      </section>
+    </main>
+
+    <div id="summaryModal" class="summary-modal" role="dialog" aria-modal="true" aria-labelledby="summaryTitle" hidden>
+      <div class="summary-backdrop" data-close-summary></div>
+      <section class="summary-dialog">
+        <button id="closeSummaryBtn" class="summary-close" type="button" aria-label="关闭总评分">×</button>
+        <div id="summaryPanel" class="summary-panel" aria-label="总评分统计"></div>
+      </section>
+    </div>
+
+    <script src="./data/model-compare-data.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
