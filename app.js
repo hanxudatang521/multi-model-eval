@@ -27,6 +27,7 @@ const els = {
   positionStat: document.querySelector("#positionStat"),
   matchStat: document.querySelector("#matchStat"),
   shuffleBtn: document.querySelector("#shuffleBtn"),
+  shareImageBtn: document.querySelector("#shareImageBtn"),
   summaryViewBtn: document.querySelector("#summaryViewBtn"),
 };
 
@@ -501,6 +502,7 @@ function renderCurrent() {
   els.prevBtn.disabled = state.filteredIndexes.length <= 1;
   els.nextBtn.disabled = state.filteredIndexes.length <= 1;
   els.shuffleBtn.disabled = state.filteredIndexes.length <= 1;
+  els.shareImageBtn.disabled = !hasRow || state.models.length < 2;
   els.summaryViewBtn.disabled = !hasDataset;
   els.matchStat.textContent = `${state.filteredIndexes.length} 条结果`;
   els.positionStat.textContent = hasRow ? `${filteredPosition + 1} / ${state.filteredIndexes.length}` : "0 / 0";
@@ -721,6 +723,166 @@ function shuffleQueries() {
   renderCurrent();
 }
 
+function wrapCanvasText(ctx, text, maxWidth) {
+  const lines = [];
+  const paragraphs = String(text || "").replace(/\r\n?/g, "\n").split("\n");
+
+  paragraphs.forEach((paragraph) => {
+    if (!paragraph) {
+      lines.push("");
+      return;
+    }
+
+    let line = "";
+    Array.from(paragraph).forEach((char) => {
+      const nextLine = line + char;
+      if (line && ctx.measureText(nextLine).width > maxWidth) {
+        lines.push(line);
+        line = char;
+      } else {
+        line = nextLine;
+      }
+    });
+    lines.push(line);
+  });
+
+  return lines;
+}
+
+function drawRoundedRect(ctx, x, y, width, height, radius) {
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + width - radius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+  ctx.lineTo(x + width, y + height - radius);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+  ctx.lineTo(x + radius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+}
+
+function drawLines(ctx, lines, x, y, lineHeight, maxY) {
+  let currentY = y;
+
+  for (const line of lines) {
+    if (currentY + lineHeight > maxY) {
+      ctx.fillText("...... 内容过长，图片已截断", x, currentY);
+      return currentY + lineHeight;
+    }
+    ctx.fillText(line, x, currentY);
+    currentY += lineHeight;
+  }
+
+  return currentY;
+}
+
+function safeFilename(value) {
+  return String(value || "query")
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, "-")
+    .slice(0, 60) || "query";
+}
+
+function downloadCurrentComparisonImage() {
+  const row = state.rows[state.currentIndex];
+  if (!row || state.models.length < 2) return;
+
+  const canvasWidth = 1600;
+  const padding = 56;
+  const gap = 32;
+  const columnWidth = (canvasWidth - padding * 2 - gap) / 2;
+  const headerHeight = 210;
+  const columnHeaderHeight = 68;
+  const columnPadding = 24;
+  const lineHeight = 25;
+  const maxCanvasHeight = 30000;
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  const query = getRowLabel(row);
+
+  ctx.font = "18px Arial, sans-serif";
+  const leftLines = wrapCanvasText(ctx, row.outputs[0] || "该模型没有输出内容", columnWidth - columnPadding * 2);
+  const rightLines = wrapCanvasText(ctx, row.outputs[1] || "该模型没有输出内容", columnWidth - columnPadding * 2);
+  const contentLines = Math.max(leftLines.length, rightLines.length);
+  const contentHeight = contentLines * lineHeight + columnHeaderHeight + columnPadding * 2;
+  const canvasHeight = Math.min(maxCanvasHeight, headerHeight + contentHeight + padding);
+
+  canvas.width = canvasWidth;
+  canvas.height = canvasHeight;
+
+  ctx.fillStyle = "#f6f7f9";
+  ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+  ctx.fillStyle = "#17202a";
+  ctx.font = "700 34px Arial, sans-serif";
+  ctx.fillText("模型效果对比", padding, 64);
+
+  ctx.fillStyle = "#657281";
+  ctx.font = "18px Arial, sans-serif";
+  ctx.fillText(`${state.sourceName || "评测数据"} · ${new Date().toLocaleString()}`, padding, 98);
+
+  ctx.fillStyle = "#0b5f59";
+  ctx.font = "700 20px Arial, sans-serif";
+  ctx.fillText("当前 query", padding, 142);
+
+  ctx.fillStyle = "#17202a";
+  ctx.font = "700 24px Arial, sans-serif";
+  const queryLines = wrapCanvasText(ctx, query, canvasWidth - padding * 2);
+  drawLines(ctx, queryLines.slice(0, 2), padding, 178, 32, headerHeight - 10);
+
+  const columns = [
+    {
+      x: padding,
+      title: state.models[0].name,
+      lines: leftLines,
+      color: "#0f766e",
+      soft: "#e3f3f0",
+    },
+    {
+      x: padding + columnWidth + gap,
+      title: state.models[1].name,
+      lines: rightLines,
+      color: "#2557a7",
+      soft: "#e8f0ff",
+    },
+  ];
+
+  columns.forEach((column) => {
+    const y = headerHeight;
+    drawRoundedRect(ctx, column.x, y, columnWidth, canvasHeight - headerHeight - padding, 10);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.strokeStyle = "#d8dee7";
+    ctx.stroke();
+
+    drawRoundedRect(ctx, column.x, y, columnWidth, columnHeaderHeight, 10);
+    ctx.fillStyle = column.soft;
+    ctx.fill();
+
+    ctx.fillStyle = column.color;
+    ctx.font = "700 22px Arial, sans-serif";
+    ctx.fillText(column.title, column.x + columnPadding, y + 42);
+
+    ctx.fillStyle = "#17202a";
+    ctx.font = "18px Arial, sans-serif";
+    drawLines(
+      ctx,
+      column.lines,
+      column.x + columnPadding,
+      y + columnHeaderHeight + columnPadding + 18,
+      lineHeight,
+      canvasHeight - padding - 18
+    );
+  });
+
+  const link = document.createElement("a");
+  link.download = `模型对比-${safeFilename(query)}.png`;
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+}
+
 function applyFilter() {
   const keyword = els.searchInput.value.trim().toLowerCase();
   state.filteredIndexes = state.rows
@@ -772,6 +934,7 @@ function bindEvents() {
   els.prevBtn.addEventListener("click", () => move(-1));
   els.nextBtn.addEventListener("click", () => move(1));
   els.shuffleBtn.addEventListener("click", shuffleQueries);
+  els.shareImageBtn.addEventListener("click", downloadCurrentComparisonImage);
   els.querySelect.addEventListener("change", (event) => {
     selectRow(Number(event.target.value));
   });
