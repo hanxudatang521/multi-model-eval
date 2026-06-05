@@ -6,6 +6,9 @@ const state = {
   sourceName: "",
   datasetKey: "",
   ratings: {},
+  originalHeaders: [],
+  originalRows: [],
+  queryColumnIndex: 0,
 };
 
 const els = {
@@ -28,6 +31,7 @@ const els = {
   matchStat: document.querySelector("#matchStat"),
   shuffleBtn: document.querySelector("#shuffleBtn"),
   shareImageBtn: document.querySelector("#shareImageBtn"),
+  exportRatingsBtn: document.querySelector("#exportRatingsBtn"),
   summaryViewBtn: document.querySelector("#summaryViewBtn"),
 };
 
@@ -351,17 +355,56 @@ function setRating(rowIndex, rating) {
   }
 }
 
+function normalizeHeader(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function findQueryColumnIndex(headers) {
+  const exactIndex = headers.findIndex((header) => normalizeHeader(header) === "query");
+  if (exactIndex >= 0) return exactIndex;
+
+  const fuzzyIndex = headers.findIndex((header) => normalizeHeader(header).includes("query"));
+  return fuzzyIndex >= 0 ? fuzzyIndex : 0;
+}
+
+function findModelColumnIndexes(headers, queryColumnIndex) {
+  const modelPattern = /大模型回复|模型回复|模型输出|模型效果|输出效果|回复|response|answer|output/i;
+  const preferredIndexes = headers
+    .map((header, index) => ({ header, index }))
+    .filter(({ header, index }) => index !== queryColumnIndex && modelPattern.test(String(header || "")))
+    .map(({ index }) => index);
+
+  if (preferredIndexes.length >= 2) return preferredIndexes.slice(0, 2);
+
+  const afterQueryIndexes = headers
+    .map((_header, index) => index)
+    .filter((index) => index !== queryColumnIndex && index > queryColumnIndex);
+
+  if (afterQueryIndexes.length >= 2) return afterQueryIndexes.slice(0, 2);
+
+  return headers
+    .map((_header, index) => index)
+    .filter((index) => index !== queryColumnIndex)
+    .slice(0, 2);
+}
+
 function normalizeRows(rawRows, sourceName, options = {}) {
   const dataRows = rawRows
     .map((row) => row.map((cell) => String(cell ?? "")))
     .filter((row) => row.some((cell) => cell.trim() !== ""));
   const headers = dataRows[0] || [];
-  const modelHeaders = headers.slice(1).map((header, index) => header.trim() || `模型 ${index + 1}`);
+  const queryColumnIndex = findQueryColumnIndex(headers);
+  const modelColumnIndexes = findModelColumnIndexes(headers, queryColumnIndex);
+  const modelHeaders = modelColumnIndexes.map((columnIndex, index) => headers[columnIndex]?.trim() || `模型 ${index + 1}`);
 
-  state.models = modelHeaders.map((name, index) => ({ id: `model-${index}`, name, columnIndex: index + 1 }));
+  state.originalHeaders = headers;
+  state.originalRows = dataRows.slice(1);
+  state.queryColumnIndex = queryColumnIndex;
+  state.models = modelHeaders.map((name, index) => ({ id: `model-${index}`, name, columnIndex: modelColumnIndexes[index] }));
   state.rows = dataRows.slice(1).map((cells, index) => ({
     id: index,
-    query: cells[0] || "",
+    originalCells: cells,
+    query: cells[queryColumnIndex] || "",
     outputs: state.models.map((model) => cells[model.columnIndex] || ""),
   }));
 
@@ -417,6 +460,9 @@ function resetDataset() {
   state.sourceName = "";
   state.datasetKey = "";
   state.ratings = {};
+  state.originalHeaders = [];
+  state.originalRows = [];
+  state.queryColumnIndex = 0;
   els.searchInput.value = "";
   els.datasetMeta.textContent = "尚未上传数据";
   els.dataSourceMeta.textContent = "请选择 CSV / XLSX 数据";
@@ -519,6 +565,7 @@ function renderCurrent() {
   els.nextBtn.disabled = state.filteredIndexes.length <= 1;
   els.shuffleBtn.disabled = state.filteredIndexes.length <= 1;
   els.shareImageBtn.disabled = !hasRow || state.models.length < 2;
+  els.exportRatingsBtn.disabled = !hasDataset || state.models.length < 2;
   els.summaryViewBtn.disabled = !hasDataset;
   els.matchStat.textContent = `${state.filteredIndexes.length} 条结果`;
   els.positionStat.textContent = hasRow ? `${filteredPosition + 1} / ${state.filteredIndexes.length}` : "0 / 0";
@@ -1191,6 +1238,97 @@ function safeFilename(value) {
     .slice(0, 60) || "query";
 }
 
+function safeSheetName(value) {
+  return String(value || "评分结果")
+    .replace(/[\\/*?:[\]]+/g, " ")
+    .trim()
+    .slice(0, 31) || "评分结果";
+}
+
+function formatDateForFilename(date) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+    pad(date.getHours()),
+    pad(date.getMinutes()),
+    pad(date.getSeconds()),
+  ].join("");
+}
+
+function makeUniqueHeaders(headers, extraHeaders) {
+  const used = new Map();
+  const unique = [];
+
+  headers.concat(extraHeaders).forEach((header, index) => {
+    const fallback = index < headers.length ? `原始列${index + 1}` : `评分列${index - headers.length + 1}`;
+    const base = String(header || fallback).trim() || fallback;
+    const count = used.get(base) || 0;
+    used.set(base, count + 1);
+    unique.push(count === 0 ? base : `${base}_${count + 1}`);
+  });
+
+  return unique;
+}
+
+function buildRatingExportRows() {
+  const extraHeaders = ["评分结果", "胜出模型", "左侧模型列名", "右侧模型列名", "是否已评分"];
+  const headers = makeUniqueHeaders(state.originalHeaders, extraHeaders);
+  const leftModel = state.models[0]?.name || "左侧模型";
+  const rightModel = state.models[1]?.name || "右侧模型";
+  const rows = state.rows.map((row, rowIndex) => {
+    const rating = getRating(rowIndex);
+    const ratingLabel = ratingOptions[rating]?.label || "未评分";
+    const winner = rating === "first"
+      ? leftModel
+      : rating === "second"
+        ? rightModel
+        : rating === "same"
+          ? "相同"
+          : "";
+    const originalCells = state.originalRows[rowIndex] || row.originalCells || [];
+
+    return [
+      ...state.originalHeaders.map((_header, columnIndex) => originalCells[columnIndex] || ""),
+      ratingLabel,
+      winner,
+      leftModel,
+      rightModel,
+      rating ? "是" : "否",
+    ];
+  });
+
+  return [headers, ...rows];
+}
+
+function downloadRatingsWorkbook() {
+  if (!state.rows.length || state.models.length < 2) return;
+
+  if (!window.XLSX) {
+    alert("XLSX 导出库加载失败，请刷新页面后重试");
+    return;
+  }
+
+  const workbook = window.XLSX.utils.book_new();
+  const rows = buildRatingExportRows();
+  const worksheet = window.XLSX.utils.aoa_to_sheet(rows);
+  const widths = rows[0].map((_header, columnIndex) => {
+    const maxLength = Math.max(
+      ...rows.slice(0, 30).map((row) => String(row[columnIndex] || "").length),
+      String(rows[0][columnIndex] || "").length
+    );
+    return { wch: Math.min(Math.max(maxLength + 2, 10), 36) };
+  });
+
+  worksheet["!cols"] = widths;
+  window.XLSX.utils.book_append_sheet(workbook, worksheet, safeSheetName("原始数据+评分"));
+  window.XLSX.writeFile(
+    workbook,
+    `评分结果-${safeFilename(state.sourceName || "评测数据")}-${formatDateForFilename(new Date())}.xlsx`
+  );
+}
+
 function truncateChars(value, maxLength) {
   const chars = Array.from(String(value || ""));
   if (chars.length <= maxLength) return chars.join("");
@@ -1346,6 +1484,7 @@ function bindEvents() {
   els.nextBtn.addEventListener("click", () => move(1));
   els.shuffleBtn.addEventListener("click", shuffleQueries);
   els.shareImageBtn.addEventListener("click", downloadCurrentComparisonImage);
+  els.exportRatingsBtn.addEventListener("click", downloadRatingsWorkbook);
   els.querySelect.addEventListener("change", (event) => {
     selectRow(Number(event.target.value));
   });

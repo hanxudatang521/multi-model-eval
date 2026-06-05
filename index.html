@@ -27,7 +27,7 @@
 
         <div class="format-hint" aria-label="数据格式要求">
           <strong>CSV / XLSX 格式要求</strong>
-          <span>第一行是表头；第 1 列是 query，第 2 列是第一个模型效果，第 3 列是第二个模型效果。XLSX 默认读取第一个工作表。</span>
+          <span>第一行是表头；推荐包含 query 和两个“大模型回复”列。评测时只展示 query 与模型回复，导出评分时会保留原始参数列。</span>
         </div>
 
         <label class="search-box" for="searchInput">
@@ -38,6 +38,7 @@
         <div class="action-row">
           <button id="shuffleBtn" class="secondary-action" type="button">打乱 query</button>
           <button id="shareImageBtn" class="secondary-action" type="button">下载对比图</button>
+          <button id="exportRatingsBtn" class="secondary-action" type="button">导出评分</button>
           <button id="summaryViewBtn" class="summary-trigger" type="button">总评分</button>
         </div>
 
