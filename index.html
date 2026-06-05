@@ -19,15 +19,15 @@
         <label class="upload-box" for="fileInput">
           <span class="upload-icon" aria-hidden="true">↑</span>
           <span>
-            <strong>上传 CSV 数据</strong>
+            <strong>上传 CSV / XLSX 数据</strong>
             <em id="dataSourceMeta">默认展示演示数据</em>
           </span>
-          <input id="fileInput" type="file" accept=".csv,text/csv">
+          <input id="fileInput" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
         </label>
 
-        <div class="format-hint" aria-label="CSV 格式要求">
-          <strong>CSV 格式要求</strong>
-          <span>第 1 列是 query，第 2 列是第一个模型效果，第 3 列是第二个模型效果。</span>
+        <div class="format-hint" aria-label="数据格式要求">
+          <strong>CSV / XLSX 格式要求</strong>
+          <span>第一行是表头；第 1 列是 query，第 2 列是第一个模型效果，第 3 列是第二个模型效果。XLSX 默认读取第一个工作表。</span>
         </div>
 
         <label class="search-box" for="searchInput">
@@ -77,6 +77,7 @@
     </div>
 
     <script src="./data/model-compare-data.js"></script>
+    <script src="./vendor/xlsx.full.min.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>

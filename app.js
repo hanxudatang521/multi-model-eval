@@ -337,13 +337,15 @@ function setRating(rowIndex, rating) {
   }
 }
 
-function normalizeDataset(rawCsv, sourceName) {
-  const csvRows = parseCsv(rawCsv);
-  const headers = csvRows[0] || [];
+function normalizeRows(rawRows, sourceName) {
+  const dataRows = rawRows
+    .map((row) => row.map((cell) => String(cell ?? "")))
+    .filter((row) => row.some((cell) => cell.trim() !== ""));
+  const headers = dataRows[0] || [];
   const modelHeaders = headers.slice(1).map((header, index) => header.trim() || `模型 ${index + 1}`);
 
   state.models = modelHeaders.map((name, index) => ({ id: `model-${index}`, name, columnIndex: index + 1 }));
-  state.rows = csvRows.slice(1).map((cells, index) => ({
+  state.rows = dataRows.slice(1).map((cells, index) => ({
     id: index,
     query: cells[0] || "",
     outputs: state.models.map((model) => cells[model.columnIndex] || ""),
@@ -359,6 +361,36 @@ function normalizeDataset(rawCsv, sourceName) {
   els.dataSourceMeta.textContent = sourceName;
 }
 
+function normalizeDataset(rawCsv, sourceName) {
+  normalizeRows(parseCsv(rawCsv), sourceName);
+}
+
+async function parseUploadedFile(file) {
+  const extension = file.name.split(".").pop().toLowerCase();
+
+  if (extension === "xlsx") {
+    if (!window.XLSX) {
+      throw new Error("XLSX 解析库加载失败，请检查网络后重试");
+    }
+
+    const workbook = window.XLSX.read(await file.arrayBuffer(), { type: "array" });
+    const firstSheetName = workbook.SheetNames[0];
+    if (!firstSheetName) throw new Error("XLSX 文件没有可读取的工作表");
+
+    return window.XLSX.utils.sheet_to_json(workbook.Sheets[firstSheetName], {
+      header: 1,
+      raw: false,
+      defval: "",
+    });
+  }
+
+  if (extension === "csv" || file.type === "text/csv") {
+    return parseCsv(await file.text());
+  }
+
+  throw new Error("仅支持 CSV 或 XLSX 文件");
+}
+
 function resetDataset() {
   state.rows = [];
   state.models = [];
@@ -369,7 +401,7 @@ function resetDataset() {
   state.ratings = {};
   els.searchInput.value = "";
   els.datasetMeta.textContent = "尚未上传数据";
-  els.dataSourceMeta.textContent = "请选择 CSV 数据";
+  els.dataSourceMeta.textContent = "请选择 CSV / XLSX 数据";
 }
 
 function loadRows() {
@@ -411,7 +443,7 @@ function renderList() {
   if (state.filteredIndexes.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    empty.textContent = state.rows.length === 0 ? "上传 CSV 后显示 query" : "没有匹配的 query";
+    empty.textContent = state.rows.length === 0 ? "上传 CSV / XLSX 后显示 query" : "没有匹配的 query";
     els.queryList.append(empty);
     return;
   }
@@ -477,7 +509,7 @@ function renderCurrent() {
     els.queryTitle.textContent = "";
     els.compareGrid.innerHTML = `
       <section class="welcome-state">
-        <h2>上传 CSV 后开始评测</h2>
+        <h2>上传 CSV / XLSX 后开始评测</h2>
         <p>左侧选择评测数据，右侧会展示每条 query 的模型输出对比和评分按钮。</p>
       </section>
     `;
@@ -703,13 +735,13 @@ function bindEvents() {
     if (!file) return;
 
     try {
-      const text = await file.text();
-      normalizeDataset(text, file.name);
+      const rows = await parseUploadedFile(file);
+      normalizeRows(rows, file.name);
       renderSelect();
       renderList();
       renderCurrent();
     } catch (error) {
-      els.datasetMeta.textContent = "CSV 读取失败，请确认文件编码和格式";
+      els.datasetMeta.textContent = error.message || "文件读取失败，请确认格式";
       console.error(error);
     }
   });
