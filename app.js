@@ -785,6 +785,12 @@ function safeFilename(value) {
     .slice(0, 60) || "query";
 }
 
+function truncateChars(value, maxLength) {
+  const chars = Array.from(String(value || ""));
+  if (chars.length <= maxLength) return chars.join("");
+  return `${chars.slice(0, maxLength).join("")}...`;
+}
+
 function downloadCurrentComparisonImage() {
   const row = state.rows[state.currentIndex];
   if (!row || state.models.length < 2) return;
@@ -829,8 +835,7 @@ function downloadCurrentComparisonImage() {
 
   ctx.fillStyle = "#17202a";
   ctx.font = "700 24px Arial, sans-serif";
-  const queryLines = wrapCanvasText(ctx, query, canvasWidth - padding * 2);
-  drawLines(ctx, queryLines.slice(0, 2), padding, 178, 32, headerHeight - 10);
+  ctx.fillText(truncateChars(query, 20), padding, 178);
 
   const columns = [
     {
