@@ -1642,6 +1642,18 @@ function getSegmentFeedbackCount(rowIndex, modelIndex, type) {
   )).length;
 }
 
+function getSegmentFeedbackSummary(rowIndex, modelIndex, type) {
+  return state.segmentFeedbacks
+    .filter((feedback) => (
+      feedback.rowIndex === rowIndex &&
+      feedback.modelIndex === modelIndex &&
+      feedback.type === type
+    ))
+    .sort((a, b) => a.startOffset - b.startOffset)
+    .map((feedback, index) => `${index + 1}. 标记内容：${feedback.selectedText || ""}\n具体原因：${feedback.reason || ""}`)
+    .join("\n\n");
+}
+
 function buildRatingExportRows() {
   const extraHeaders = [
     "评分结果",
@@ -1654,6 +1666,10 @@ function buildRatingExportRows() {
     "右侧局部好评数",
     "右侧局部差评数",
     "局部反馈总数",
+    "左侧好的具体反馈",
+    "左侧坏的具体反馈",
+    "右侧好的具体反馈",
+    "右侧坏的具体反馈",
   ];
   const headers = makeUniqueHeaders(state.originalHeaders, extraHeaders);
   const leftModel = state.models[0]?.name || "左侧模型";
@@ -1673,6 +1689,10 @@ function buildRatingExportRows() {
     const leftBad = getSegmentFeedbackCount(rowIndex, 0, "bad");
     const rightGood = getSegmentFeedbackCount(rowIndex, 1, "good");
     const rightBad = getSegmentFeedbackCount(rowIndex, 1, "bad");
+    const leftGoodSummary = getSegmentFeedbackSummary(rowIndex, 0, "good");
+    const leftBadSummary = getSegmentFeedbackSummary(rowIndex, 0, "bad");
+    const rightGoodSummary = getSegmentFeedbackSummary(rowIndex, 1, "good");
+    const rightBadSummary = getSegmentFeedbackSummary(rowIndex, 1, "bad");
 
     return [
       ...state.originalHeaders.map((_header, columnIndex) => originalCells[columnIndex] || ""),
@@ -1686,6 +1706,10 @@ function buildRatingExportRows() {
       rightGood,
       rightBad,
       leftGood + leftBad + rightGood + rightBad,
+      leftGoodSummary,
+      leftBadSummary,
+      rightGoodSummary,
+      rightBadSummary,
     ];
   });
 
@@ -1697,9 +1721,10 @@ function buildSegmentFeedbackExportRows() {
     "query",
     "模型名称",
     "模型列名",
-    "反馈类型",
-    "选中文本",
-    "反馈原因",
+    "标记内容",
+    "评价",
+    "好的具体原因",
+    "坏的具体原因",
     "前文",
     "后文",
     "文本起始位置",
@@ -1713,13 +1738,17 @@ function buildSegmentFeedbackExportRows() {
     .map((feedback) => {
       const row = state.rows[feedback.rowIndex];
       const model = state.models[feedback.modelIndex];
+      const feedbackLabel = segmentFeedbackOptions[feedback.type]?.label || "";
+      const goodReason = feedback.type === "good" ? feedback.reason || "" : "";
+      const badReason = feedback.type === "bad" ? feedback.reason || "" : "";
       return [
         row ? getRowLabel(row) : "",
         model?.name || "",
-        model?.name || "",
-        segmentFeedbackOptions[feedback.type]?.label || "",
+        state.originalHeaders[model?.columnIndex] || model?.name || "",
         feedback.selectedText || "",
-        feedback.reason || "",
+        feedbackLabel,
+        goodReason,
+        badReason,
         feedback.beforeContext || "",
         feedback.afterContext || "",
         feedback.startOffset,
