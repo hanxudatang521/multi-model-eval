@@ -6,6 +6,8 @@ const state = {
   sourceName: "",
   datasetKey: "",
   ratings: {},
+  segmentFeedbacks: [],
+  pendingSegmentSelection: null,
   originalHeaders: [],
   originalRows: [],
   queryColumnIndex: 0,
@@ -35,12 +37,27 @@ const els = {
   exportRatingsBtn: document.querySelector("#exportRatingsBtn"),
   summaryViewBtn: document.querySelector("#summaryViewBtn"),
   containerModeButtons: document.querySelectorAll("[data-container-mode]"),
+  segmentToolbar: document.querySelector("#segmentToolbar"),
+  segmentReasonPanel: document.querySelector("#segmentReasonPanel"),
+  segmentReasonTitle: document.querySelector("#segmentReasonTitle"),
+  segmentReasonText: document.querySelector("#segmentReasonText"),
+  segmentConfirmBtn: document.querySelector("#segmentConfirmBtn"),
+  segmentCancelBtn: document.querySelector("#segmentCancelBtn"),
+  segmentFeedbackPanel: document.querySelector("#segmentFeedbackPanel"),
+  segmentFeedbackTitle: document.querySelector("#segmentFeedbackTitle"),
+  segmentFeedbackList: document.querySelector("#segmentFeedbackList"),
+  closeSegmentFeedbackBtn: document.querySelector("#closeSegmentFeedbackBtn"),
 };
 
 const ratingOptions = {
   first: { label: "左好", shortLabel: "左好" },
   same: { label: "相同", shortLabel: "相同" },
   second: { label: "右好", shortLabel: "右好" },
+};
+
+const segmentFeedbackOptions = {
+  good: { label: "好", className: "is-good" },
+  bad: { label: "坏", className: "is-bad" },
 };
 
 function parseCsv(text) {
@@ -299,16 +316,48 @@ function loadRatings() {
   }
 }
 
+function getSegmentFeedbackKey() {
+  return state.datasetKey ? `${state.datasetKey}:segment-feedbacks` : "";
+}
+
+function loadSegmentFeedbacks() {
+  try {
+    const saved = window.localStorage.getItem(getSegmentFeedbackKey());
+    const parsed = saved ? JSON.parse(saved) : [];
+    state.segmentFeedbacks = Array.isArray(parsed)
+      ? parsed.filter((item) => (
+        Number.isInteger(item.rowIndex) &&
+        Number.isInteger(item.modelIndex) &&
+        Number.isInteger(item.startOffset) &&
+        Number.isInteger(item.endOffset) &&
+        item.endOffset > item.startOffset &&
+        Boolean(segmentFeedbackOptions[item.type])
+      ))
+      : [];
+  } catch {
+    state.segmentFeedbacks = [];
+  }
+}
+
 function clearSavedRatings() {
   try {
     Object.keys(window.localStorage)
       .filter((key) => key.startsWith("model-compare-ratings:"))
       .forEach((key) => window.localStorage.removeItem(key));
   } catch {
-    // 浏览器禁止访问本地存储时，仍清空当前会话里的评分。
+    // 浏览器禁止访问本地存储时，仍清空当前会话里的评分与局部反馈。
   }
 
   state.ratings = {};
+  state.segmentFeedbacks = [];
+}
+
+function saveSegmentFeedbacks() {
+  try {
+    window.localStorage.setItem(getSegmentFeedbackKey(), JSON.stringify(state.segmentFeedbacks));
+  } catch {
+    // 局部反馈仍保留在当前会话中；浏览器禁止存储时不打断评测。
+  }
 }
 
 function saveRatings() {
@@ -321,6 +370,13 @@ function saveRatings() {
 
 function getRating(rowIndex) {
   return state.ratings[String(rowIndex)] || "";
+}
+
+function getSegmentFeedbacks(rowIndex = state.currentIndex, modelIndex = null) {
+  return state.segmentFeedbacks.filter((feedback) => (
+    feedback.rowIndex === rowIndex &&
+    (modelIndex === null || feedback.modelIndex === modelIndex)
+  ));
 }
 
 function findNextUnratedRow(rowIndex) {
@@ -416,8 +472,10 @@ function normalizeRows(rawRows, sourceName, options = {}) {
   state.datasetKey = buildDatasetKey(sourceName);
   if (options.loadRatings === false) {
     state.ratings = {};
+    state.segmentFeedbacks = [];
   } else {
     loadRatings();
+    loadSegmentFeedbacks();
   }
   els.searchInput.value = "";
   els.datasetMeta.textContent = `${state.rows.length} 条 query，${state.models.length} 个模型列`;
@@ -462,6 +520,8 @@ function resetDataset() {
   state.sourceName = "";
   state.datasetKey = "";
   state.ratings = {};
+  state.segmentFeedbacks = [];
+  state.pendingSegmentSelection = null;
   state.originalHeaders = [];
   state.originalRows = [];
   state.queryColumnIndex = 0;
@@ -566,28 +626,280 @@ function renderOutputContent(output) {
   return output ? markdownToHtml(output) : "<div class=\"empty-state\">该模型没有输出内容</div>";
 }
 
+function createFeedbackCountButton(rowIndex, modelIndex) {
+  const count = getSegmentFeedbacks(rowIndex, modelIndex).length;
+  if (count === 0) return "";
+  return `<button class="segment-count-btn" type="button" data-feedback-list="${modelIndex}">局部反馈 ${count}</button>`;
+}
+
+function wrapTextNodeRange(textNode, start, end, feedback) {
+  const after = textNode.splitText(end);
+  const target = textNode.splitText(start);
+  const marker = document.createElement("span");
+  marker.className = `segment-highlight ${segmentFeedbackOptions[feedback.type].className}`;
+  marker.dataset.segmentFeedbackId = feedback.id;
+  marker.title = `${segmentFeedbackOptions[feedback.type].label}：${feedback.reason}`;
+  target.parentNode.insertBefore(marker, after);
+  marker.append(target);
+}
+
+function applySegmentHighlights(body, rowIndex, modelIndex) {
+  const feedbacks = getSegmentFeedbacks(rowIndex, modelIndex)
+    .filter((feedback) => feedback.startOffset >= 0 && feedback.endOffset <= body.textContent.length)
+    .sort((a, b) => a.startOffset - b.startOffset || a.endOffset - b.endOffset);
+  if (!feedbacks.length) return;
+
+  const visibleFeedbacks = [];
+  let lastEnd = -1;
+  feedbacks.forEach((feedback) => {
+    if (feedback.startOffset >= lastEnd) {
+      visibleFeedbacks.push(feedback);
+      lastEnd = feedback.endOffset;
+    }
+  });
+
+  const operations = [];
+  const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  let offset = 0;
+
+  while (node) {
+    const nextOffset = offset + node.nodeValue.length;
+    visibleFeedbacks.forEach((feedback) => {
+      const start = Math.max(feedback.startOffset, offset);
+      const end = Math.min(feedback.endOffset, nextOffset);
+      if (start < end) {
+        operations.push({
+          node,
+          start: start - offset,
+          end: end - offset,
+          feedback,
+        });
+      }
+    });
+    offset = nextOffset;
+    node = walker.nextNode();
+  }
+
+  operations
+    .sort((a, b) => {
+      if (a.node === b.node) return b.start - a.start;
+      return 0;
+    })
+    .forEach((operation) => {
+      if (operation.node.parentNode) {
+        wrapTextNodeRange(operation.node, operation.start, operation.end, operation.feedback);
+      }
+    });
+}
+
+function enhanceMarkdownBody(body, rowIndex, modelIndex) {
+  body.dataset.rowIndex = String(rowIndex);
+  body.dataset.modelIndex = String(modelIndex);
+  applySegmentHighlights(body, rowIndex, modelIndex);
+}
+
+function hideSegmentToolbar() {
+  els.segmentToolbar.hidden = true;
+}
+
+function hideSegmentReasonPanel() {
+  els.segmentReasonPanel.hidden = true;
+  els.segmentReasonText.value = "";
+}
+
+function placeFloatingElement(element, x, y) {
+  const margin = 12;
+  element.hidden = false;
+  const rect = element.getBoundingClientRect();
+  const left = Math.min(Math.max(margin, x), window.innerWidth - rect.width - margin);
+  const top = Math.min(Math.max(margin, y), window.innerHeight - rect.height - margin);
+  element.style.left = `${left}px`;
+  element.style.top = `${top}px`;
+}
+
+function getSelectionOffsetWithin(container, node, offset) {
+  const range = document.createRange();
+  range.selectNodeContents(container);
+  range.setEnd(node, offset);
+  return range.toString().length;
+}
+
+function getSelectionMarkdownBody(selection) {
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+
+  const range = selection.getRangeAt(0);
+  const startElement = range.startContainer.nodeType === Node.TEXT_NODE
+    ? range.startContainer.parentElement
+    : range.startContainer;
+  const endElement = range.endContainer.nodeType === Node.TEXT_NODE
+    ? range.endContainer.parentElement
+    : range.endContainer;
+  const startBody = startElement?.closest?.(".markdown-body");
+  const endBody = endElement?.closest?.(".markdown-body");
+
+  if (!startBody || startBody !== endBody) return null;
+  return startBody;
+}
+
+function captureSegmentSelection(event) {
+  const selection = window.getSelection();
+  const body = getSelectionMarkdownBody(selection);
+  if (!body) {
+    hideSegmentToolbar();
+    return;
+  }
+
+  const range = selection.getRangeAt(0);
+  const rawText = range.toString();
+  const selectedText = rawText.trim();
+  if (!selectedText) {
+    hideSegmentToolbar();
+    return;
+  }
+
+  const trimStart = rawText.length - rawText.trimStart().length;
+  const trimEnd = rawText.length - rawText.trimEnd().length;
+  const startOffset = getSelectionOffsetWithin(body, range.startContainer, range.startOffset) + trimStart;
+  const endOffset = getSelectionOffsetWithin(body, range.endContainer, range.endOffset) - trimEnd;
+  if (endOffset <= startOffset) {
+    hideSegmentToolbar();
+    return;
+  }
+
+  const plainText = body.textContent || "";
+  state.pendingSegmentSelection = {
+    rowIndex: Number(body.dataset.rowIndex),
+    modelIndex: Number(body.dataset.modelIndex),
+    selectedText,
+    startOffset,
+    endOffset,
+    beforeContext: plainText.slice(Math.max(0, startOffset - 40), startOffset),
+    afterContext: plainText.slice(endOffset, Math.min(plainText.length, endOffset + 40)),
+    x: event.clientX,
+    y: event.clientY,
+  };
+
+  placeFloatingElement(els.segmentToolbar, event.clientX + 8, event.clientY + 8);
+}
+
+function openSegmentReasonPanel(type) {
+  if (!state.pendingSegmentSelection) return;
+  const option = segmentFeedbackOptions[type];
+  state.pendingSegmentSelection.type = type;
+  els.segmentReasonTitle.textContent = `标记为「${option.label}」`;
+  hideSegmentToolbar();
+  placeFloatingElement(
+    els.segmentReasonPanel,
+    state.pendingSegmentSelection.x + 8,
+    state.pendingSegmentSelection.y + 8
+  );
+  els.segmentReasonText.focus();
+}
+
+function confirmSegmentFeedback() {
+  const selection = state.pendingSegmentSelection;
+  if (!selection?.type) return;
+
+  const reason = els.segmentReasonText.value.trim();
+  if (!reason) {
+    els.segmentReasonText.focus();
+    return;
+  }
+
+  state.segmentFeedbacks.push({
+    id: `seg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    rowIndex: selection.rowIndex,
+    modelIndex: selection.modelIndex,
+    type: selection.type,
+    selectedText: selection.selectedText,
+    reason,
+    startOffset: selection.startOffset,
+    endOffset: selection.endOffset,
+    beforeContext: selection.beforeContext,
+    afterContext: selection.afterContext,
+    createdAt: new Date().toLocaleString(),
+  });
+
+  saveSegmentFeedbacks();
+  hideSegmentReasonPanel();
+  state.pendingSegmentSelection = null;
+  window.getSelection()?.removeAllRanges();
+  renderCurrent();
+}
+
+function deleteSegmentFeedback(feedbackId) {
+  state.segmentFeedbacks = state.segmentFeedbacks.filter((feedback) => feedback.id !== feedbackId);
+  saveSegmentFeedbacks();
+  renderCurrent();
+  if (!els.segmentFeedbackPanel.hidden) {
+    const modelIndex = Number(els.segmentFeedbackPanel.dataset.modelIndex);
+    openSegmentFeedbackPanel(modelIndex);
+  }
+}
+
+function openSegmentFeedbackPanel(modelIndex) {
+  const row = state.rows[state.currentIndex];
+  if (!row) return;
+
+  const model = state.models[modelIndex];
+  const feedbacks = getSegmentFeedbacks(state.currentIndex, modelIndex)
+    .sort((a, b) => a.startOffset - b.startOffset);
+
+  els.segmentFeedbackPanel.dataset.modelIndex = String(modelIndex);
+  els.segmentFeedbackTitle.textContent = `${model?.name || "模型"} · 局部反馈 ${feedbacks.length} 条`;
+  els.segmentFeedbackList.innerHTML = feedbacks.length
+    ? feedbacks.map((feedback) => `
+      <article class="segment-feedback-item ${segmentFeedbackOptions[feedback.type].className}">
+        <div>
+          <strong>${segmentFeedbackOptions[feedback.type].label}</strong>
+          <span>${escapeHtml(feedback.createdAt || "")}</span>
+        </div>
+        <blockquote>${escapeHtml(feedback.selectedText)}</blockquote>
+        <p>${escapeHtml(feedback.reason)}</p>
+        <button type="button" data-delete-segment="${feedback.id}">删除</button>
+      </article>
+    `).join("")
+    : "<div class=\"empty-state\">这个模型结果还没有局部反馈</div>";
+  els.segmentFeedbackPanel.hidden = false;
+}
+
+function closeSegmentFeedbackPanel() {
+  els.segmentFeedbackPanel.hidden = true;
+  els.segmentFeedbackPanel.dataset.modelIndex = "";
+}
+
 function createWebModelPane(model, output) {
+  const modelIndex = state.models.indexOf(model);
   const article = document.createElement("article");
   article.className = "version-pane";
   article.setAttribute("aria-labelledby", `${model.id}-title`);
   article.innerHTML = `
     <header class="pane-header">
       <h3 id="${model.id}-title">${escapeHtml(model.name)}</h3>
-      <span>${output.length} 字符</span>
+      <div class="pane-actions">
+        ${createFeedbackCountButton(state.currentIndex, modelIndex)}
+        <span>${output.length} 字符</span>
+      </div>
     </header>
     <div class="markdown-body">${renderOutputContent(output)}</div>
   `;
+  enhanceMarkdownBody(article.querySelector(".markdown-body"), state.currentIndex, modelIndex);
   return article;
 }
 
 function createMobileModelPane(model, output, query) {
+  const modelIndex = state.models.indexOf(model);
   const article = document.createElement("article");
   article.className = "mobile-device-pane";
   article.setAttribute("aria-labelledby", `${model.id}-mobile-title`);
   article.innerHTML = `
     <div class="mobile-device-label">
       <strong id="${model.id}-mobile-title">${escapeHtml(model.name)}</strong>
-      <span>${output.length} 字符</span>
+      <div class="pane-actions">
+        ${createFeedbackCountButton(state.currentIndex, modelIndex)}
+        <span>${output.length} 字符</span>
+      </div>
     </div>
     <div class="phone-shell" aria-label="${escapeHtml(model.name)} 移动端容器">
       <img class="phone-frame" src="./设备外壳.png" alt="" aria-hidden="true">
@@ -600,6 +912,7 @@ function createMobileModelPane(model, output, query) {
       </div>
     </div>
   `;
+  enhanceMarkdownBody(article.querySelector(".markdown-body"), state.currentIndex, modelIndex);
   return article;
 }
 
@@ -622,6 +935,9 @@ function renderCurrent() {
   els.matchStat.textContent = `${state.filteredIndexes.length} 条结果`;
   els.positionStat.textContent = hasRow ? `${filteredPosition + 1} / ${state.filteredIndexes.length}` : "0 / 0";
   els.compareGrid.innerHTML = "";
+  hideSegmentToolbar();
+  hideSegmentReasonPanel();
+  state.pendingSegmentSelection = null;
   renderContainerModeSwitch();
   renderRatingDock();
 
@@ -1318,8 +1634,27 @@ function makeUniqueHeaders(headers, extraHeaders) {
   return unique;
 }
 
+function getSegmentFeedbackCount(rowIndex, modelIndex, type) {
+  return state.segmentFeedbacks.filter((feedback) => (
+    feedback.rowIndex === rowIndex &&
+    feedback.modelIndex === modelIndex &&
+    feedback.type === type
+  )).length;
+}
+
 function buildRatingExportRows() {
-  const extraHeaders = ["评分结果", "胜出模型", "左侧模型列名", "右侧模型列名", "是否已评分"];
+  const extraHeaders = [
+    "评分结果",
+    "胜出模型",
+    "左侧模型列名",
+    "右侧模型列名",
+    "是否已评分",
+    "左侧局部好评数",
+    "左侧局部差评数",
+    "右侧局部好评数",
+    "右侧局部差评数",
+    "局部反馈总数",
+  ];
   const headers = makeUniqueHeaders(state.originalHeaders, extraHeaders);
   const leftModel = state.models[0]?.name || "左侧模型";
   const rightModel = state.models[1]?.name || "右侧模型";
@@ -1334,6 +1669,10 @@ function buildRatingExportRows() {
           ? "相同"
           : "";
     const originalCells = state.originalRows[rowIndex] || row.originalCells || [];
+    const leftGood = getSegmentFeedbackCount(rowIndex, 0, "good");
+    const leftBad = getSegmentFeedbackCount(rowIndex, 0, "bad");
+    const rightGood = getSegmentFeedbackCount(rowIndex, 1, "good");
+    const rightBad = getSegmentFeedbackCount(rowIndex, 1, "bad");
 
     return [
       ...state.originalHeaders.map((_header, columnIndex) => originalCells[columnIndex] || ""),
@@ -1342,8 +1681,53 @@ function buildRatingExportRows() {
       leftModel,
       rightModel,
       rating ? "是" : "否",
+      leftGood,
+      leftBad,
+      rightGood,
+      rightBad,
+      leftGood + leftBad + rightGood + rightBad,
     ];
   });
+
+  return [headers, ...rows];
+}
+
+function buildSegmentFeedbackExportRows() {
+  const headers = [
+    "query",
+    "模型名称",
+    "模型列名",
+    "反馈类型",
+    "选中文本",
+    "反馈原因",
+    "前文",
+    "后文",
+    "文本起始位置",
+    "文本结束位置",
+    "原始行号",
+    "创建时间",
+  ];
+  const rows = state.segmentFeedbacks
+    .slice()
+    .sort((a, b) => a.rowIndex - b.rowIndex || a.modelIndex - b.modelIndex || a.startOffset - b.startOffset)
+    .map((feedback) => {
+      const row = state.rows[feedback.rowIndex];
+      const model = state.models[feedback.modelIndex];
+      return [
+        row ? getRowLabel(row) : "",
+        model?.name || "",
+        model?.name || "",
+        segmentFeedbackOptions[feedback.type]?.label || "",
+        feedback.selectedText || "",
+        feedback.reason || "",
+        feedback.beforeContext || "",
+        feedback.afterContext || "",
+        feedback.startOffset,
+        feedback.endOffset,
+        feedback.rowIndex + 2,
+        feedback.createdAt || "",
+      ];
+    });
 
   return [headers, ...rows];
 }
@@ -1369,6 +1753,18 @@ function downloadRatingsWorkbook() {
 
   worksheet["!cols"] = widths;
   window.XLSX.utils.book_append_sheet(workbook, worksheet, safeSheetName("原始数据+评分"));
+
+  const segmentRows = buildSegmentFeedbackExportRows();
+  const segmentWorksheet = window.XLSX.utils.aoa_to_sheet(segmentRows);
+  segmentWorksheet["!cols"] = segmentRows[0].map((_header, columnIndex) => {
+    const maxLength = Math.max(
+      ...segmentRows.slice(0, 30).map((row) => String(row[columnIndex] || "").length),
+      String(segmentRows[0][columnIndex] || "").length
+    );
+    return { wch: Math.min(Math.max(maxLength + 2, 10), 42) };
+  });
+  window.XLSX.utils.book_append_sheet(workbook, segmentWorksheet, safeSheetName("局部反馈明细"));
+
   window.XLSX.writeFile(
     workbook,
     `评分结果-${safeFilename(state.sourceName || "评测数据")}-${formatDateForFilename(new Date())}.xlsx`
@@ -1537,6 +1933,39 @@ function bindEvents() {
       renderCurrent();
       resetCompareScroll();
     });
+  });
+  els.compareGrid.addEventListener("mouseup", (event) => {
+    window.setTimeout(() => captureSegmentSelection(event), 0);
+  });
+  els.segmentToolbar.querySelectorAll("[data-segment-type]").forEach((button) => {
+    button.addEventListener("click", () => openSegmentReasonPanel(button.dataset.segmentType));
+  });
+  els.segmentConfirmBtn.addEventListener("click", confirmSegmentFeedback);
+  els.segmentCancelBtn.addEventListener("click", () => {
+    hideSegmentReasonPanel();
+    hideSegmentToolbar();
+    state.pendingSegmentSelection = null;
+    window.getSelection()?.removeAllRanges();
+  });
+  els.closeSegmentFeedbackBtn.addEventListener("click", closeSegmentFeedbackPanel);
+  els.compareGrid.addEventListener("click", (event) => {
+    const listButton = event.target.closest("[data-feedback-list]");
+    if (listButton) {
+      openSegmentFeedbackPanel(Number(listButton.dataset.feedbackList));
+    }
+  });
+  els.segmentFeedbackList.addEventListener("click", (event) => {
+    const deleteButton = event.target.closest("[data-delete-segment]");
+    if (deleteButton) deleteSegmentFeedback(deleteButton.dataset.deleteSegment);
+  });
+  document.addEventListener("mousedown", (event) => {
+    if (
+      !els.segmentToolbar.hidden &&
+      !els.segmentToolbar.contains(event.target) &&
+      !event.target.closest(".markdown-body")
+    ) {
+      hideSegmentToolbar();
+    }
   });
   els.querySelect.addEventListener("change", (event) => {
     selectRow(Number(event.target.value));

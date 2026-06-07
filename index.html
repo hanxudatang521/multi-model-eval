@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>模型效果 Markdown 对比</title>
-    <link rel="stylesheet" href="./styles.css?v=20260605-3">
+    <link rel="stylesheet" href="./styles.css?v=20260607-1">
   </head>
   <body>
     <main class="app-shell">
@@ -87,8 +87,30 @@
       </section>
     </div>
 
-    <script src="./data/model-compare-data.js?v=20260605-3"></script>
+    <div id="segmentToolbar" class="segment-toolbar" hidden>
+      <button type="button" data-segment-type="good">好</button>
+      <button type="button" data-segment-type="bad">坏</button>
+    </div>
+
+    <section id="segmentReasonPanel" class="segment-reason-panel" aria-labelledby="segmentReasonTitle" hidden>
+      <h3 id="segmentReasonTitle">添加局部反馈</h3>
+      <textarea id="segmentReasonText" rows="4" placeholder="写下这段内容好或坏的具体原因"></textarea>
+      <div>
+        <button id="segmentCancelBtn" type="button">取消</button>
+        <button id="segmentConfirmBtn" type="button">确认</button>
+      </div>
+    </section>
+
+    <aside id="segmentFeedbackPanel" class="segment-feedback-panel" aria-labelledby="segmentFeedbackTitle" hidden>
+      <header>
+        <h3 id="segmentFeedbackTitle">局部反馈</h3>
+        <button id="closeSegmentFeedbackBtn" type="button" aria-label="关闭局部反馈列表">×</button>
+      </header>
+      <div id="segmentFeedbackList" class="segment-feedback-list"></div>
+    </aside>
+
+    <script src="./data/model-compare-data.js?v=20260607-1"></script>
     <script src="./vendor/xlsx.full.min.js"></script>
-    <script src="./app.js?v=20260605-3"></script>
+    <script src="./app.js?v=20260607-1"></script>
   </body>
 </html>
