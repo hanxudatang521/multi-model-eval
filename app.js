@@ -33,6 +33,7 @@ const els = {
   positionStat: document.querySelector("#positionStat"),
   matchStat: document.querySelector("#matchStat"),
   shuffleBtn: document.querySelector("#shuffleBtn"),
+  copyAiPromptBtn: document.querySelector("#copyAiPromptBtn"),
   shareImageBtn: document.querySelector("#shareImageBtn"),
   exportRatingsBtn: document.querySelector("#exportRatingsBtn"),
   summaryViewBtn: document.querySelector("#summaryViewBtn"),
@@ -47,6 +48,7 @@ const els = {
   segmentFeedbackTitle: document.querySelector("#segmentFeedbackTitle"),
   segmentFeedbackList: document.querySelector("#segmentFeedbackList"),
   closeSegmentFeedbackBtn: document.querySelector("#closeSegmentFeedbackBtn"),
+  toast: document.querySelector("#toast"),
 };
 
 const ratingOptions = {
@@ -929,6 +931,7 @@ function renderCurrent() {
   els.prevBtn.disabled = state.filteredIndexes.length <= 1;
   els.nextBtn.disabled = state.filteredIndexes.length <= 1;
   els.shuffleBtn.disabled = state.filteredIndexes.length <= 1;
+  els.copyAiPromptBtn.disabled = !hasRow || state.models.length < 2;
   els.shareImageBtn.disabled = !hasRow || state.models.length < 2;
   els.exportRatingsBtn.disabled = !hasDataset || state.models.length < 2;
   els.summaryViewBtn.disabled = !hasDataset;
@@ -1932,6 +1935,101 @@ function closeSummaryModal() {
   els.summaryModal.hidden = true;
 }
 
+let toastTimer = null;
+
+function showToast(message) {
+  window.clearTimeout(toastTimer);
+  els.toast.textContent = message;
+  els.toast.hidden = false;
+  toastTimer = window.setTimeout(() => {
+    els.toast.hidden = true;
+  }, 1800);
+}
+
+function buildCurrentAiPrompt() {
+  const row = state.rows[state.currentIndex];
+  const leftModel = state.models[0];
+  const rightModel = state.models[1];
+
+  if (!row || !leftModel || !rightModel) return "";
+
+  const leftOutput = row.outputs[0] || "";
+  const rightOutput = row.outputs[1] || "";
+
+  return [
+    "你是一名模型效果评测助手。请基于同一个 query，对左右两个模型回复进行客观对比评测。",
+    "",
+    "评测目标：",
+    "1. 判断哪一侧回复整体更好，只能在“左好 / 相同 / 右好”中选择一个。",
+    "2. 说明你的判断理由，重点关注准确性、完整性、结构清晰度、表达质量、是否贴合 query、是否存在明显事实错误或无关内容。",
+    "3. 分别指出左侧优点、左侧问题、右侧优点、右侧问题。",
+    "4. 你的输出用于辅助产品经理判断，最终评分仍由人工完成。",
+    "",
+    "请按以下格式输出：",
+    "结论：左好 / 相同 / 右好",
+    "判断理由：",
+    "左侧优点：",
+    "左侧问题：",
+    "右侧优点：",
+    "右侧问题：",
+    "",
+    "当前 query：",
+    row.query || "(空 query)",
+    "",
+    "左侧模型名称：",
+    leftModel.name,
+    "",
+    "左侧模型回复：",
+    leftOutput || "(空回复)",
+    "",
+    "右侧模型名称：",
+    rightModel.name,
+    "",
+    "右侧模型回复：",
+    rightOutput || "(空回复)",
+  ].join("\n");
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // 部分浏览器会暴露 Clipboard API，但在本地预览或自动化环境里拒绝写入。
+    }
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.append(textarea);
+  textarea.select();
+
+  try {
+    if (!document.execCommand("copy")) {
+      throw new Error("复制命令执行失败");
+    }
+  } finally {
+    textarea.remove();
+  }
+}
+
+async function copyCurrentAiPrompt() {
+  const prompt = buildCurrentAiPrompt();
+  if (!prompt) return;
+
+  try {
+    await copyTextToClipboard(prompt);
+    showToast("AI 评测 Prompt 已复制");
+  } catch (error) {
+    console.error(error);
+    showToast("复制失败，请检查浏览器剪贴板权限");
+  }
+}
+
 function bindEvents() {
   els.fileInput.addEventListener("change", async (event) => {
     const file = event.target.files[0];
@@ -1954,6 +2052,7 @@ function bindEvents() {
   els.prevBtn.addEventListener("click", () => move(-1));
   els.nextBtn.addEventListener("click", () => move(1));
   els.shuffleBtn.addEventListener("click", shuffleQueries);
+  els.copyAiPromptBtn.addEventListener("click", copyCurrentAiPrompt);
   els.shareImageBtn.addEventListener("click", downloadCurrentComparisonImage);
   els.exportRatingsBtn.addEventListener("click", downloadRatingsWorkbook);
   els.containerModeButtons.forEach((button) => {

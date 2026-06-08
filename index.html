@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>模型效果 Markdown 对比</title>
-    <link rel="stylesheet" href="./styles.css?v=20260607-1">
+    <link rel="stylesheet" href="./styles.css?v=20260608-ai-prompt-inline">
   </head>
   <body>
     <main class="app-shell">
@@ -79,6 +79,8 @@
       </section>
     </main>
 
+    <button id="copyAiPromptBtn" class="ai-prompt-floating" type="button">复制 AI Prompt</button>
+
     <div id="summaryModal" class="summary-modal" role="dialog" aria-modal="true" aria-labelledby="summaryTitle" hidden>
       <div class="summary-backdrop" data-close-summary></div>
       <section class="summary-dialog">
@@ -109,8 +111,10 @@
       <div id="segmentFeedbackList" class="segment-feedback-list"></div>
     </aside>
 
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
     <script src="./data/model-compare-data.js?v=20260607-1"></script>
     <script src="./vendor/xlsx.full.min.js"></script>
-    <script src="./app.js?v=20260607-1"></script>
+    <script src="./app.js?v=20260608-ai-prompt"></script>
   </body>
 </html>

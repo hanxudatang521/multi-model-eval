@@ -218,6 +218,32 @@ input[type="file"] {
   font-weight: 700;
 }
 
+.ai-prompt-floating {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 30;
+  min-width: 148px;
+  height: 44px;
+  border: 1px solid rgba(15, 118, 110, 0.32);
+  border-radius: 8px;
+  background: var(--choice);
+  color: #ffffff;
+  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.22);
+  cursor: pointer;
+  padding: 0 16px;
+  font-weight: 800;
+}
+
+.ai-prompt-floating:hover:not(:disabled) {
+  background: var(--accent-strong);
+}
+
+.ai-prompt-floating:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .icon-button,
 .query-list button {
   border: 1px solid var(--border);
@@ -1210,6 +1236,26 @@ input[type="file"] {
   cursor: pointer;
   padding: 0 10px;
   font-weight: 800;
+}
+
+.toast {
+  position: fixed;
+  top: 22px;
+  left: 50%;
+  z-index: 60;
+  transform: translateX(-50%);
+  border: 1px solid rgba(15, 118, 110, 0.24);
+  border-radius: 8px;
+  background: rgba(227, 243, 240, 0.98);
+  color: var(--accent-strong);
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.16);
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.toast[hidden] {
+  display: none;
 }
 
 .markdown-body {
